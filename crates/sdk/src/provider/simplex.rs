@@ -5,18 +5,28 @@ use electrsd::bitcoind::bitcoincore_rpc::Auth;
 use simplicityhl::elements::{Address, Script, Transaction, Txid};
 
 use crate::provider::SimplicityNetwork;
-use crate::transaction::UTXO;
+use crate::transaction::{TxReceipt, UTXO};
 
 use super::core::ProviderTrait;
 use super::error::ProviderError;
 use super::{ElementsRpc, EsploraProvider};
 
+/// A local provider used during Regtest or local development.
+/// It wraps an `EsploraProvider` for REST API queries and an `ElementsRpc` for direct node interactions.
+#[derive(Debug)]
 pub struct SimplexProvider {
+    /// The Esplora provider for handling REST API queries.
     pub esplora: EsploraProvider,
+    /// The Elements RPC provider for direct node operations and wallet interaction.
     pub elements: ElementsRpc,
 }
 
 impl SimplexProvider {
+    /// Creates a new `SimplexProvider` with the given URLs, authentication, and network.
+    ///
+    /// # Panics
+    /// Panics if the `ElementsRpc` client fails to initialize.
+    #[must_use]
     pub fn new(esplora_url: String, elements_url: String, auth: Auth, network: SimplicityNetwork) -> Self {
         Self {
             esplora: EsploraProvider::new(esplora_url, network),
@@ -30,12 +40,12 @@ impl ProviderTrait for SimplexProvider {
         self.esplora.get_network()
     }
 
-    fn broadcast_transaction(&self, tx: &Transaction) -> Result<Txid, ProviderError> {
-        let txid = self.esplora.broadcast_transaction(tx)?;
+    fn broadcast_transaction(&self, tx: &Transaction) -> Result<TxReceipt<'_>, ProviderError> {
+        let tx_receipt = self.esplora.broadcast_transaction(tx)?;
 
         self.elements.generate_blocks(1)?;
 
-        Ok(txid)
+        Ok(tx_receipt)
     }
 
     fn wait(&self, txid: &Txid) -> Result<(), ProviderError> {

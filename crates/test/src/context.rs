@@ -5,12 +5,16 @@ use electrsd::bitcoind::bitcoincore_rpc::Auth;
 use smplx_regtest::Regtest;
 use smplx_regtest::client::RegtestClient;
 
-use smplx_sdk::provider::{EsploraProvider, ProviderInfo, ProviderTrait, SimplexProvider, SimplicityNetwork};
+use smplx_sdk::global::set_global_config;
+use smplx_sdk::provider::{
+    ElementsRpc, EsploraProvider, ProviderInfo, ProviderTrait, SimplexProvider, SimplicityNetwork,
+};
 use smplx_sdk::signer::Signer;
 use smplx_sdk::utils::random_mnemonic;
 
 use crate::config::TestConfig;
 use crate::error::TestError;
+use crate::network_utils::NetworkUtils;
 
 #[allow(dead_code)]
 pub struct TestContext {
@@ -24,6 +28,15 @@ pub struct TestContext {
 impl TestContext {
     pub fn new(config_path: PathBuf) -> Result<Self, TestError> {
         let config = TestConfig::from_file(&config_path)?;
+
+        // error is ignored because we assume that all tests use the same verbosity
+        let _ = set_global_config(
+            config
+                .verbosity
+                .expect("This will be set")
+                .try_into()
+                .expect("Validated in CLI"),
+        );
 
         let (signer, provider_info, client) = Self::setup(&config)?;
 
@@ -75,6 +88,24 @@ impl TestContext {
         self.signer.get_provider().get_network()
     }
 
+    pub fn get_network_utils(&self) -> NetworkUtils {
+        assert!(
+            self._client.is_some(),
+            "Network utils only available in Regtest network"
+        );
+
+        let regtest_rpc = ElementsRpc::new(
+            self._provider_info.elements_url.clone().unwrap(),
+            self._provider_info.auth.clone().unwrap(),
+        )
+        .expect("Failed to create rpc client for network utils");
+
+        let network = self.get_network();
+        let esplora = EsploraProvider::new(self._provider_info.esplora_url.clone(), *network);
+
+        NetworkUtils::new(regtest_rpc, esplora)
+    }
+
     fn setup(config: &TestConfig) -> Result<(Signer, ProviderInfo, Option<RegtestClient>), TestError> {
         let client: Option<RegtestClient>;
         let provider_info: ProviderInfo;
@@ -121,7 +152,7 @@ impl TestContext {
             },
             None => {
                 // simplex inner network
-                let (regtest_client, regtest_signer) = Regtest::from_config(config.to_regtest_config())?;
+                let (regtest_client, regtest_signer) = Regtest::from_config(&config.to_regtest_config())?;
 
                 provider_info = ProviderInfo {
                     esplora_url: regtest_client.esplora_url(),

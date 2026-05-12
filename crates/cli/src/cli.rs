@@ -22,12 +22,29 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub async fn run(&self) -> Result<(), CliError> {
+    /// Executes the parsed command and routes it to the corresponding sub-handler.
+    ///
+    /// # Errors
+    /// Returns a `CliError` if loading the configuration fails, an underlying command execution encounters an error,
+    /// or if there are file system I/O errors (for example, attempting to initialize over an existing project directory).
+    pub fn run(&self) -> Result<(), CliError> {
         match &self.command {
-            Command::Init { additional_flags } => {
-                let simplex_conf_path = Config::get_default_path()?;
+            Command::Init { name } => {
+                let simplex_conf_path = match name {
+                    Some(name) => {
+                        let dir = std::env::current_dir()?.join(name);
 
-                Ok(Init::run(simplex_conf_path, additional_flags)?)
+                        if dir.exists() {
+                            return Err(CliError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists)));
+                        }
+
+                        std::fs::create_dir_all(&dir)?;
+                        dir.join("Simplex.toml")
+                    }
+                    None => Config::get_default_path()?,
+                };
+
+                Ok(Init::run(simplex_conf_path)?)
             }
             Command::Config => {
                 let config_path = Config::get_default_path()?;
@@ -37,31 +54,29 @@ impl Cli {
 
                 Ok(())
             }
-            Command::Test { name, additional_flags } => {
+            Command::Test { args, flags } => {
                 let config_path = Config::get_default_path()?;
                 let loaded_config = Config::load(config_path)?;
 
-                let filter = name.clone().unwrap_or_default();
-
-                Ok(Test::run(loaded_config.test, filter, additional_flags)?)
+                Ok(Test::run(loaded_config.test, args, flags)?)
             }
             Command::Regtest => {
                 let config_path = Config::get_default_path()?;
                 let loaded_config = Config::load(config_path)?;
 
-                Ok(Regtest::run(loaded_config.regtest)?)
+                Ok(Regtest::run(&loaded_config.regtest)?)
             }
             Command::Build => {
                 let config_path = Config::get_default_path()?;
                 let loaded_config = Config::load(config_path)?;
 
-                Ok(Build::run(loaded_config.build)?)
+                Ok(Build::run(&loaded_config.build)?)
             }
             Command::Clean => {
                 let config_path = Config::get_default_path()?;
                 let loaded_config = Config::load(&config_path)?;
 
-                Ok(Clean::run(loaded_config.build)?)
+                Ok(Clean::run(&loaded_config.build)?)
             }
         }
     }

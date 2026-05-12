@@ -1,10 +1,10 @@
-use simplex::simplicityhl::elements::{AssetId, Txid};
+use simplex::simplicityhl::elements::AssetId;
 
 use simplex::signer::Signer;
 use simplex::transaction::partial_input::IssuanceInput;
-use simplex::transaction::{FinalTransaction, PartialInput, PartialOutput, RequiredSignature};
+use simplex::transaction::{FinalTransaction, PartialInput, PartialOutput, RequiredSignature, TxReceipt};
 
-fn make_confidential_to_bob(alice: &Signer, bob: &Signer, asset: AssetId) -> anyhow::Result<Txid> {
+fn make_confidential_to_bob<'a>(alice: &'a Signer, bob: &Signer, asset: AssetId) -> anyhow::Result<TxReceipt<'a>> {
     let mut ft = FinalTransaction::new();
 
     ft.add_output(
@@ -12,38 +12,40 @@ fn make_confidential_to_bob(alice: &Signer, bob: &Signer, asset: AssetId) -> any
             .with_blinding_key(bob.get_blinding_public_key()),
     );
 
-    let txid = alice.broadcast(&ft)?;
-    println!("Broadcast: {}", txid);
+    let tx_receipt = alice.broadcast(&ft)?;
+    println!("Broadcast: {}", tx_receipt);
 
-    Ok(txid)
+    Ok(tx_receipt)
 }
 
-fn issue_confidential_to_alice(alice: &Signer, bob: &Signer) -> anyhow::Result<Txid> {
+fn issue_confidential_to_alice<'a>(alice: &Signer, bob: &'a Signer) -> anyhow::Result<TxReceipt<'a>> {
     let utxos = bob.get_utxos()?;
 
     let mut ft = FinalTransaction::new();
 
-    let (issuance_id, reissuance_id) = ft.add_issuance_input(
+    let issuance_details = ft.add_issuance_input(
         PartialInput::new(utxos[0].clone()),
-        IssuanceInput::new(1000, [1u8; 32])
-            .with_reissuance(100)
-            .with_blinding_nonce([1u8; 32]),
+        IssuanceInput::new_issuance(1000, 100, [1u8; 32]),
         RequiredSignature::NativeEcdsa,
     );
 
     ft.add_output(
-        PartialOutput::new(alice.get_address().script_pubkey(), 1000, issuance_id)
+        PartialOutput::new(alice.get_address().script_pubkey(), 1000, issuance_details.asset_id)
             .with_blinding_key(alice.get_blinding_public_key()),
     );
     ft.add_output(
-        PartialOutput::new(alice.get_address().script_pubkey(), 100, reissuance_id)
-            .with_blinding_key(alice.get_blinding_public_key()),
+        PartialOutput::new(
+            alice.get_address().script_pubkey(),
+            100,
+            issuance_details.inflation_asset_id,
+        )
+        .with_blinding_key(alice.get_blinding_public_key()),
     );
 
-    let txid = bob.broadcast(&ft)?;
-    println!("Broadcast: {}", txid);
+    let tx_receipt = bob.broadcast(&ft)?;
+    println!("Broadcast: {}", tx_receipt);
 
-    Ok(txid)
+    Ok(tx_receipt)
 }
 
 #[simplex::test]
@@ -52,21 +54,21 @@ fn confidential_test(context: simplex::TestContext) -> anyhow::Result<()> {
     let alice = context.get_default_signer();
     let bob = context.random_signer();
 
-    let txid = make_confidential_to_bob(alice, &bob, provider.get_network().policy_asset())?;
+    let tx_receipt = make_confidential_to_bob(alice, &bob, provider.get_network().policy_asset())?;
 
-    provider.wait(&txid)?;
+    tx_receipt.wait()?;
     println!("Confirmed");
 
-    let txid = issue_confidential_to_alice(alice, &bob)?;
+    let tx_receipt = issue_confidential_to_alice(alice, &bob)?;
 
-    provider.wait(&txid)?;
+    tx_receipt.wait()?;
     println!("Confirmed");
 
     // spend confidential
-    let txid = bob.send(alice.get_address().script_pubkey(), 50)?;
-    println!("Broadcast: {}", txid);
+    let tx_receipt = bob.send(alice.get_address().script_pubkey(), 50)?;
+    println!("Broadcast: {}", tx_receipt);
 
-    provider.wait(&txid)?;
+    tx_receipt.wait()?;
     println!("Confirmed");
 
     Ok(())

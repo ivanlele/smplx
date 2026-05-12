@@ -1,7 +1,7 @@
 use std::{fs, fs::OpenOptions, io::Write, path::Path};
 
 use crate::commands::error::CommandError;
-use crate::commands::{InitFlags, error::InitError};
+use crate::commands::error::InitError;
 use crate::config::INIT_CONFIG;
 
 pub const SIMPLEX_CRATE_NAME: &str = "smplx-std";
@@ -9,10 +9,15 @@ pub const SIMPLEX_CRATE_NAME: &str = "smplx-std";
 pub struct Init;
 
 impl Init {
-    pub fn run(smplx_conf_path: impl AsRef<Path>, flags: &InitFlags) -> Result<(), CommandError> {
-        if flags.lib {
-            Self::generate_lib_inplace(&smplx_conf_path)?
-        }
+    /// Initializes a new Simplex project at the specified configuration path.
+    ///
+    /// This method generates the necessary project files and directories (including
+    /// `Cargo.toml`, source files, test templates, and configuration files) in place.
+    ///
+    /// # Errors
+    /// Returns a `CommandError` if creating directories, writing project files, or fetching the latest crate version from `crates.io` fails.
+    pub fn run(smplx_conf_path: impl AsRef<Path>) -> Result<(), CommandError> {
+        Self::generate_lib_inplace(&smplx_conf_path)?;
 
         Self::fill_simplex_toml(smplx_conf_path)?;
 
@@ -55,6 +60,8 @@ impl Init {
         let default_lib_rs_file_content: &[u8] = { b"pub mod artifacts;" };
         let default_test_file_content: &[u8] = {
             b"\
+/// For a complete working example, browse the source at:
+/// <https://github.com/BlockstreamResearch/smplx/blob/master/examples/basic/tests/basic_test.rs>
 #[simplex::test]
 fn dummy_test(context: simplex::TestContext) {
     // your test code here
@@ -93,25 +100,25 @@ fn main() {
 
         let file_name = file_name
             .to_str()
-            .ok_or_else(|| InitError::NonUnicodeName(format!("{file_name:?}")))?;
+            .ok_or_else(|| InitError::NonUnicodeName(format!("{}", file_name.display())))?;
 
-        Ok(format!("simplex_{}", file_name))
+        Ok(format!("simplex_{file_name}"))
     }
 
     fn get_smplx_max_version() -> Result<String, InitError> {
-        let url = format!("https://crates.io/api/v1/crates/{}", SIMPLEX_CRATE_NAME);
+        let url = format!("https://crates.io/api/v1/crates/{SIMPLEX_CRATE_NAME}");
 
         let response = minreq::get(&url)
             .with_header("User-Agent", "simplex_generator")
             .send()
-            .map_err(|e| InitError::CratesIoFetch(format!("Failed to fetch crate info: {}", e)))?;
+            .map_err(|e| InitError::CratesIoFetch(format!("Failed to fetch crate info: {e}")))?;
 
         let body = response
             .as_str()
-            .map_err(|e| InitError::CratesIoFetch(format!("Invalid response body: {}", e)))?;
+            .map_err(|e| InitError::CratesIoFetch(format!("Invalid response body: {e}")))?;
 
         let json: serde_json::Value =
-            serde_json::from_str(body).map_err(|e| InitError::CratesIoFetch(format!("Failed to parse JSON: {}", e)))?;
+            serde_json::from_str(body).map_err(|e| InitError::CratesIoFetch(format!("Failed to parse JSON: {e}")))?;
 
         let latest_version = json["crate"]["max_stable_version"]
             .as_str()
@@ -143,6 +150,7 @@ fn main() {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn execute_cargo_fmt(file: impl AsRef<Path>) -> Result<(), InitError> {
         let mut cargo_test_command = std::process::Command::new("sh");
 
